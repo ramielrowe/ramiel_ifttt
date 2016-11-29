@@ -3,11 +3,13 @@ import os
 import flask
 from flask import request
 import requests
+import rxv
 from zeroconf import ServiceBrowser, Zeroconf
 
 FLASK_PORT = os.environ.get('FLASK_PORT', 8080)
 IFTTT_SECRET = os.environ.get('IFTTT_SECRET')
 
+RECEIVER_URL = "http://{}:80/YamahaRemoteControl/ctrl"
 
 class ChromecastListener(object):
 
@@ -40,7 +42,7 @@ cast_listener = ChromecastListener()
 app = flask.Flask(__name__)
 
 @app.route("/chromecast/youtube", methods=['POST'])
-def chromecast_youtube():
+def chromecast_youtube_endpoint():
     body = request.get_json()
     if IFTTT_SECRET and body.get('secret') != IFTTT_SECRET:
         return ""
@@ -51,6 +53,32 @@ def chromecast_youtube():
         return ""
     requests.post('http://{}:{}/apps/YouTube'.format(cast['host'], 8008),
                   data="v={}".format(video))
+    return ""
+
+@app.route("/receiver", methods=['POST'])
+def receiver_endpoint():
+    body = request.get_json()
+    if IFTTT_SECRET and body.get('secret') != IFTTT_SECRET:
+        return ""
+    
+    address = body['address']
+    on = body.get('on')
+    input = body.get('input')
+    
+    receiver = rxv.RXV(RECEIVER_URL.format(address))
+
+    try:
+        if not receiver.basic_status:
+            return ""
+    except Exception as e:
+        return ""
+
+    if on is not None:
+        receiver.on = on
+
+    if on and input:
+        receiver.input = input
+
     return ""
 
 if __name__ == "__main__":
