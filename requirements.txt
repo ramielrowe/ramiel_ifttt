@@ -2,3 +2,4 @@ flask
 requests
 zeroconf
 rxv
+git+https://github.com/aparraga/braviarc.git

@@ -1,5 +1,8 @@
+from concurrent import futures
 import os
+import queue
 
+from braviarc import braviarc
 import flask
 from flask import request
 import requests
@@ -11,8 +14,10 @@ IFTTT_SECRET = os.environ.get('IFTTT_SECRET')
 
 RECEIVER_URL = "http://{}:80/YamahaRemoteControl/ctrl"
 
-class ChromecastListener(object):
+TASK_QUEUE = queue.Queue()
 
+
+class ChromecastListener(object):
     def __init__(self):
         self.zconf = Zeroconf()
         self.browser = ServiceBrowser(self.zconf, "_googlecast._tcp.local.", self)
@@ -38,8 +43,10 @@ class ChromecastListener(object):
             if cast['friendly_name'] == friendly_name:
                 return cast
 
+
 cast_listener = ChromecastListener()
 app = flask.Flask(__name__)
+
 
 @app.route("/chromecast/youtube", methods=['POST'])
 def chromecast_youtube_endpoint():
@@ -55,15 +62,21 @@ def chromecast_youtube_endpoint():
                   data="v={}".format(video))
     return ""
 
+
 @app.route("/receiver", methods=['POST'])
 def receiver_endpoint():
     body = request.get_json()
     if IFTTT_SECRET and body.get('secret') != IFTTT_SECRET:
         return ""
-    
+    TASK_QUEUE.put(('receiver', body))
+    return ""
+
+
+def _receiver_endpoint(body):
     address = body['address']
     on = body.get('on')
     input = body.get('input')
+    volume = body.get('volume')
     
     receiver = rxv.RXV(RECEIVER_URL.format(address))
 
@@ -79,9 +92,80 @@ def receiver_endpoint():
     if on and input:
         receiver.input = input
 
+    if volume and volume[0] == '+':
+        receiver.volume = receiver.volume + int(volume[1:])
+    elif volume and volume[0] == '-':
+        receiver.volume = receiver.volume - int(volume[1:])
+    elif volume:
+        receiver.volume = int(volume)
+
     return ""
 
+
+@app.route("/tv", methods=['POST'])
+def tv_endpoint():
+    body = request.get_json()
+    if IFTTT_SECRET and body.get('secret') != IFTTT_SECRET:
+        return ""
+    TASK_QUEUE.put(('tv', body))
+    return ""
+
+
+def _tv_endpoint(body):
+    address = body['address']
+    pin = body['pin']
+    on = body.get('on')
+    cmd = body.get('cmd')
+
+    brc = braviarc.BraviaRC(address)
+    brc.connect(pin, 'ramiel_ifttt', 'ramiel_ifttt')
+
+    if on is not None:
+        if on:
+            brc.turn_on()
+        else:
+            brc.turn_off()
+
+    if cmd == 'play':
+        brc.media_play()
+    elif cmd == 'pause':
+        brc.media_pause()
+
+    return ""
+
+
+def dict_hash(d):
+    return hash(frozenset(d.items()))
+
+
+def handle_task(task, body):
+    print("{}: {}".format(task, body))
+    if task == 'receiver':
+        _receiver_endpoint(body)
+    elif task == 'tv':
+        _tv_endpoint(body)
+
+
+def queue_worker():
+    next_task, next_body = None, None
+    while True:
+        task, body = TASK_QUEUE.get()
+        try:
+            next_task, next_body = TASK_QUEUE.get(timeout=3)
+            if next_task == task and dict_hash(body) == dict_hash(next_body):
+                next_task, next_body = None, None
+        except queue.Empty:
+            pass
+
+        handle_task(task, body)
+        if next_task:
+            handle_task(next_task, next_body)
+            next_task, next_body = None, None
+
+
 if __name__ == "__main__":
-    app.run(host='0.0.0.0', port=int(FLASK_PORT))
+    with futures.ThreadPoolExecutor(max_workers=1) as exc:
+        exc.submit(queue_worker)
+        app.run(host='0.0.0.0', port=int(FLASK_PORT))
     cast_listener.close()
     print('done')
