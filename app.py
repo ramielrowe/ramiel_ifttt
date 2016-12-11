@@ -150,14 +150,20 @@ def queue_worker():
     next_task, next_body = None, None
     while True:
         task, body = TASK_QUEUE.get()
+        handle_task(task, body)
         try:
-            next_task, next_body = TASK_QUEUE.get(timeout=3)
-            if next_task == task and dict_hash(body) == dict_hash(next_body):
-                next_task, next_body = None, None
+            deduping = True
+            timeout = 3
+            while deduping:
+                deduping = False
+                next_task, next_body = TASK_QUEUE.get(timeout=timeout)
+                if next_task == task and body == next_body:
+                    deduping = True
+                    next_task, next_body = None, None
+                    timeout = 1
         except queue.Empty:
             pass
 
-        handle_task(task, body)
         if next_task:
             handle_task(next_task, next_body)
             next_task, next_body = None, None
