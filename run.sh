@@ -12,4 +12,5 @@ docker run -d --name ramiel_ifttt \
     --net host \
     -e IFTTT_SECRET=${IFTTT_SECRET} \
     -e FLASK_PORT=${FLASK_PORT} \
+    -e JENKINS_PASSWORD=${JENKINS_PASSWORD} \
     ramiel_ifttt

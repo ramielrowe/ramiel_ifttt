@@ -2,4 +2,5 @@ flask
 requests
 zeroconf
 rxv
+python-jenkins
 git+https://github.com/aparraga/braviarc.git

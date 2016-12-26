@@ -5,12 +5,16 @@ import queue
 from braviarc import braviarc
 import flask
 from flask import request
+import jenkins
 import requests
 import rxv
 from zeroconf import ServiceBrowser, Zeroconf
 
 FLASK_PORT = os.environ.get('FLASK_PORT', 8080)
 IFTTT_SECRET = os.environ.get('IFTTT_SECRET')
+
+JENKINS_USERNAME = os.environ.get('JENKINS_USERNAME', 'ifttt')
+JENKINS_PASSWORD = os.environ.get('JENKINS_PASSWORD')
 
 RECEIVER_URL = "http://{}:80/YamahaRemoteControl/ctrl"
 
@@ -60,6 +64,28 @@ def chromecast_youtube_endpoint():
         return ""
     requests.post('http://{}:{}/apps/YouTube'.format(cast['host'], 8008),
                   data="v={}".format(video))
+    return ""
+
+
+@app.route("/jenkins", methods=['POST'])
+def jenkins_endpoint():
+    body = request.get_json()
+    if IFTTT_SECRET and body.get('secret') != IFTTT_SECRET:
+        return ""
+    TASK_QUEUE.put(('jenkins', body))
+    return ""
+
+
+def _jenkins_endpoint(body):
+    url = body['url']
+    job = body['job']
+
+    jenkins_client = jenkins.Jenkins(url,
+                                     username=JENKINS_USERNAME,
+                                     password=JENKINS_PASSWORD)
+
+    jenkins_client.build_job(job)
+
     return ""
 
 
@@ -144,6 +170,8 @@ def handle_task(task, body):
         _receiver_endpoint(body)
     elif task == 'tv':
         _tv_endpoint(body)
+    elif task == 'jenkins':
+        _jenkins_endpoint(body)
 
 
 def queue_worker():
